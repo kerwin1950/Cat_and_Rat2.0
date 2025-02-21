@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <title>猫捉老鼠游戏</title>
+    <link rel="icon" type="resources/logo.png" href="resources/logo.ico">
+    <!-- 加载 Brython 核心脚本和标准库 -->
+    <script src="https://cdn.jsdelivr.net/npm/brython@3.10.5/brython.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/brython@3.10.5/brython_stdlib.js"></script>
+    <style>
+       *{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+       }
+       body{
+        display:flex;
+        justify-content:center;
+        align-items:center;
+        height:100vh;
+        background-color:#393838;
+
+       }
+        canvas {
+            background:black;
+            max-width:100%;
+            max-height:100%;
+        }
+    </style>
+
+  </head>
+  <body onload="brython()">
+    <!-- 音频元素：确保这些文件存在于 resources 目录下 -->
+    <audio id="bg_music" src="resources/bg.mp3" loop></audio>
+    <audio id="eat_sound" src="resources/eat.mp3"></audio>
+    <audio id="hit_sound" src="resources/hit.mp3"></audio>
+    <audio id="loser_sound" src="resources/loser.mp3"></audio>
+    <audio id="winner_sound" src="resources/winner.mp3"></audio>
+    <!-- 游戏画布 -->
+    <canvas id="game_canvas"></canvas>
+
+    <script type="text/python" src="src/main.py"></script>
+    <script>
+        // 为了让音频元素在移动设备上自动播放，需要用户交互触发
+        document.body.addEventListener('click', function() {
+            // document.getElementById('bg_music').play();
+        });
+    </script>
+    <script>
+        function resizeCanvas() {
+            const canvas = document.getElementById('game_canvas');
+            const isMobile=window.innerWidth<768;
+
+            if(isMobile){
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+            }else{
+                let canvas = document.getElementById("game_canvas");
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+            } 
+        }
+        window.addEventListener('resize',resizeCanvas);
+        window.addEventListener('load',resizeCanvas);
+    </script>
+
+  </body>
+</html>
