@@ -10,11 +10,26 @@ ctx = canvas.getContext("2d")
 # Canvas 尺寸（初始时同步 HTML 中的 canvas 大小）
 HORIZONTAL_LENGTH = canvas.width
 VERTICAL_WIDTH = canvas.height
-
+is_paused = False
+game_running = True# 游戏是否正在运行
+# 设计分辨率
+DESIGN_WIDTH = 800
+DESIGN_HEIGHT = 600
+scale_factor = min(canvas.width / DESIGN_WIDTH, canvas.height / DESIGN_HEIGHT)
+# 常量
 BUTTON_WIDTH = 200
 BUTTON_HEIGHT = 50
 STEP_SIZE = 20
-
+BASE_RAT_SIZE = 10  # 设计分辨率下的基础大小
+RAT_SIZE = int(BASE_RAT_SIZE * scale_factor)
+BASE_CAT_SIZE = 30  # 设计分辨率下的基础大小
+CAT_SIZE = int(BASE_CAT_SIZE * scale_factor)
+BASE_CHEESE_SIZE = 20  # 设计分辨率下的基础大小
+CHEESE_SIZE = int(BASE_CHEESE_SIZE * scale_factor)
+BASE_OBSTACLE_SIZE_LOW = 40  # 设计分辨率下的基础大小
+BASE_OBSTACLE_SIZE_HIGH = 150  # 设计分辨率下的基础大小
+OBSTACLE_SIZE_LOW = int(BASE_OBSTACLE_SIZE_LOW * scale_factor)
+OBSTACLE_SIZE_HIGH = int(BASE_OBSTACLE_SIZE_HIGH * scale_factor)
 # 颜色（RGB 格式）
 WHITE       = (255, 255, 255)
 BLACK       = (0, 0, 0)
@@ -22,7 +37,6 @@ DARK_GREEN  = (0, 100, 0)
 BRIGHT_GREEN= (0, 155, 0)
 GREY        = (128, 128, 128)
 YELLOW      = (255, 255, 0)
-
 # 资源路径
 ICON_PATH         = "resources/logo.png"
 BG_MUSIC_PATH     = "resources/bg.mp3"
@@ -61,10 +75,10 @@ class Rect:
 
     def colliderect(self, other):
         return not (
-            self.x + self.width < other.x or 
-            self.x > other.x + other.width or
-            self.y + self.height < other.y or 
-            self.y > other.y + other.height
+            self.x + self.width <= other.x or 
+            self.x >= other.x + other.width or
+            self.y + self.height <= other.y or 
+            self.y >= other.y + other.height
         )
 
 class Vector2:
@@ -228,7 +242,7 @@ class Cat:
 
 
 class Cheese:
-    def __init__(self, x, y, size=20):
+    def __init__(self, x, y, size=CHEESE_SIZE):
         self.x = x
         self.y = y
         self.size = size
@@ -247,8 +261,8 @@ class Obstacle:
     def __init__(self, x, y):
         self.x = x
         self.y = y
-        self.length = random.randint(10, 100)
-        self.width = random.randint(10, 100)
+        self.length = random.randint(OBSTACLE_SIZE_LOW, OBSTACLE_SIZE_HIGH)
+        self.width = random.randint(OBSTACLE_SIZE_LOW, OBSTACLE_SIZE_HIGH)
         self.color = (random.randint(0,255), random.randint(0,255), random.randint(0,255))
         self.rect = Rect(x, y, self.length, self.width)
 
@@ -366,7 +380,7 @@ obstacles = []
 pid_controller = None
 last_catch_time = 0
 catch_cooldown = 2000  # 毫秒
-start_ticks = time.time()
+start_ticks = window.Date.now() / 1000  # 转换为秒
 scores = 0
 lives_count = 3
 
@@ -408,10 +422,10 @@ def show_instructions():
     instruction_running = {"running": True}
 
     # 使用 lambda 包装函数传递 return_button 参数
-    on_mouse_move = lambda event: handle_mouse_move(event, return_button, button_color, hover_color)
-    on_mouse_click = lambda event: handle_mouse_click(event, return_button, lambda: close_instructions(instruction_running))
-    document.bind("mousemove", on_mouse_move)
-    document.bind("click", on_mouse_click)
+    help_mouse_move = lambda event: handle_mouse_move(event, return_button, button_color, hover_color)
+    help_mouse_click = lambda event: handle_mouse_click(event, return_button, lambda: close_instructions(instruction_running))
+    document.bind("mousemove", help_mouse_move)
+    document.bind("click", help_mouse_click)
 
     def render_instructions(timestamp):
         if not instruction_running["running"]:
@@ -432,8 +446,8 @@ def show_instructions():
 
 def close_instructions(running):
     running["running"] = False
-    document.unbind("mousemove")
-    document.unbind("click")
+    document.unbind("mousemove", help_mouse_move)
+    document.unbind("click", help_mouse_click)
 
 def show_start_screen(callback):
     button_color = DARK_GREEN
@@ -548,35 +562,77 @@ def show_exit_screen(scores, lives_count, callback):
 # 游戏运行事件及主循环
 # ===============================
 def on_game_click(event):
-    global rat
-    if rat is not None:
-        rat.speed = min(rat.speed + 50, rat.max_speed)
+    global rat, is_paused, game_running
+    if not game_running:
+        document.unbind("click", on_game_click)
+        return
+    rect = canvas.getBoundingClientRect()# 获取画布相对于视口的位置
+    click_x = event.clientX - rect.left# 获取鼠标点击的x坐标
+    click_y = event.clientY - rect.top
 
+    # 暂停按钮区域检测
+    pause_button_x = canvas.width - 100
+    pause_button_y = 10
+    pause_button_width = 80
+    pause_button_height = 30
+    if (pause_button_x <= click_x <= pause_button_x + pause_button_width and
+        pause_button_y <= click_y <= pause_button_y + pause_button_height):
+        is_paused = not is_paused# 切换暂停状态
+    else:
+        if not is_paused:
+            if rat is not None:# 如果老鼠对象存在
+                rat.speed = min(rat.speed + 50, rat.max_speed)# 增加老鼠速度
+        else:# 如果游戏暂停
+            # 继续按钮区域
+            resume_button_x = canvas.width/2 - 100
+            resume_button_y = canvas.height/2 - 60
+            resume_button_width = 200
+            resume_button_height = 50
+            if (resume_button_x <= click_x <= resume_button_x + resume_button_width and
+                resume_button_y <= click_y <= resume_button_y + resume_button_height):
+                is_paused = False
+            
+            # 返回主菜单按钮区域
+            menu_button_x = canvas.width/2 - 100
+            menu_button_y = canvas.height/2 + 10
+            menu_button_width = 200
+            menu_button_height = 50
+            if (menu_button_x <= click_x <= menu_button_x + menu_button_width and
+                menu_button_y <= click_y <= menu_button_y + menu_button_height):# 如果点击了返回主菜单按钮
+                is_paused = False
+                game_running = False
+                document.unbind("click", on_game_click)  # 新增解绑
+                BG_MUSIC.pause()
+                main()# 重新开始游戏
 def main_loop(timestamp):
-    global rat, cat, cheeses, obstacles, pid_controller, last_catch_time, start_ticks, lives_count, scores
-
-    # 检查游戏剩余时间，如果用完就显示退出界面
-    if update_timer(start_ticks) <= 0:
-        # 定义退出回调（例如重启或退出）
-        def exit_callback(restart):
-            global start_ticks, lives_count, scores, obstacles, cat, rat, pid_controller, cheeses
-            if restart:
-                start_ticks = time.time()
-                lives_count = 3
-                scores = 0
-                obstacles = initialize_obstacles(20)
-                cat_x, cat_y = generate_safe_position(15, obstacles)
-                rat_x, rat_y = generate_safe_position(5, obstacles)
-                pid_controller = PID(0.9, 0.1, 0.01)
-                cat = Cat(random.randint(60, 300), 15, cat_x, cat_y)
-                rat = Rat(random.randint(60, 300), 5, rat_x, rat_y)
-                cheeses.clear()
-                cheeses.append(generate_cheese_position(obstacles))
-                window.requestAnimationFrame(main_loop)
-        show_exit_screen(scores, lives_count, exit_callback)
+    global rat, cat, cheeses, obstacles, pid_controller, last_catch_time, start_ticks, lives_count, scores, is_paused, game_running
+    
+    if not game_running:
         return
 
-    # 正常的游戏更新逻辑开始
+    if not is_paused:
+        # 检查游戏剩余时间，如果用完就显示退出界面
+        if update_timer(start_ticks) <= 0:
+            # 定义退出回调（例如重启或退出）
+            def exit_callback(restart):
+                global start_ticks, lives_count, scores, obstacles, cat, rat, pid_controller, cheeses
+                if restart:
+                    start_ticks = time.time()
+                    lives_count = 3
+                    scores = 0
+                    obstacles = initialize_obstacles(20)
+                    cat_x, cat_y = generate_safe_position(CAT_SIZE, obstacles)
+                    rat_x, rat_y = generate_safe_position(RAT_SIZE, obstacles)
+                    pid_controller = PID(0.9, 0.1, 0.01)
+                    cat = Cat(random.randint(60, 300), CAT_SIZE, cat_x, cat_y)
+                    rat = Rat(random.randint(60, 300), RAT_SIZE, rat_x, rat_y)
+                    cheeses.clear()
+                    cheeses.append(generate_cheese_position(obstacles))
+                    window.requestAnimationFrame(main_loop)
+            show_exit_screen(scores, lives_count, exit_callback)
+            return
+
+        # 正常的游戏更新逻辑开始
     ctx.fillStyle = rgb_color(BLACK)
     ctx.fillRect(0, 0, canvas.width, canvas.height)
     target_x, target_y = mouse_x, mouse_y
@@ -616,11 +672,11 @@ def main_loop(timestamp):
                         lives_count = 3
                         scores = 0
                         obstacles = initialize_obstacles(20)
-                        cat_x, cat_y = generate_safe_position(15, obstacles)
-                        rat_x, rat_y = generate_safe_position(5, obstacles)
+                        cat_x, cat_y = generate_safe_position(CAT_SIZE, obstacles)
+                        rat_x, rat_y = generate_safe_position(RAT_SIZE, obstacles)
                         pid_controller = PID(0.9, 0.1, 0.01)
-                        cat = Cat(random.randint(60, 300), 15, cat_x, cat_y)
-                        rat = Rat(random.randint(60, 300), 5, rat_x, rat_y)
+                        cat = Cat(random.randint(60, 300), CAT_SIZE, cat_x, cat_y)
+                        rat = Rat(random.randint(60, 300), RAT_SIZE, rat_x, rat_y)
                         cheeses.clear()
                         cheeses.append(generate_cheese_position(obstacles))
                         window.requestAnimationFrame(main_loop)
@@ -631,6 +687,30 @@ def main_loop(timestamp):
     ctx.fillText("Time: {}".format(update_timer(start_ticks)),10, 30)
     ctx.fillText("生命: {}".format(lives_count), 100, 30)
     ctx.fillText("奶酪: {}".format(scores), 200, 30)
+     # 绘制暂停按钮
+    pause_button_text = "继续" if is_paused else "暂停"
+    ctx.fillStyle = rgb_color(DARK_GREEN)
+    ctx.fillRect(canvas.width - 100, 10, 80, 30)
+    ctx.fillStyle = rgb_color(WHITE)
+    ctx.font = "20px Arial"
+    ctx.fillText(pause_button_text, canvas.width - 90, 30)
+
+    # 绘制暂停菜单
+    if is_paused:
+        ctx.fillStyle = "rgba(0, 0, 0, 0.7)"
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
+        
+        # 继续按钮
+        ctx.fillStyle = rgb_color(DARK_GREEN)
+        ctx.fillRect(canvas.width/2 - 100, canvas.height/2 - 60, 200, 50)
+        ctx.fillStyle = rgb_color(WHITE)
+        ctx.fillText("继续", canvas.width/2 - 30, canvas.height/2 - 25)
+        
+        # 返回主菜单按钮
+        ctx.fillStyle = rgb_color(DARK_GREEN)
+        ctx.fillRect(canvas.width/2 - 100, canvas.height/2 + 10, 200, 50)
+        ctx.fillStyle = rgb_color(WHITE)
+        ctx.fillText("返回主菜单", canvas.width/2 - 60, canvas.height/2 + 35)
     window.requestAnimationFrame(main_loop)
 
 
@@ -640,15 +720,28 @@ def clean_exit():
     window.location.reload()
 
 def main():
-    global rat, cat, cheeses, obstacles, pid_controller, lives_count, scores, last_catch_time, start_ticks
+    global game_running, is_paused, rat, cat, cheeses, obstacles, pid_controller, lives_count, scores, start_ticks
+    # 完全重置所有游戏状态
+    game_running = True
+    is_paused = False
     lives_count = 3
     scores = 0
+    start_ticks = time.time()
+    # 清除旧的游戏对象
+    rat = None
+    cat = None
+    cheeses = []
     obstacles = initialize_obstacles(20)
-    cat_x, cat_y = generate_safe_position(15, obstacles)
-    rat_x, rat_y = generate_safe_position(5, obstacles)
+     # 确保移除旧的事件监听
+    try:
+        document.unbind("click", on_game_click)
+    except:
+        pass
+    cat_x, cat_y = generate_safe_position(CAT_SIZE, obstacles)
+    rat_x, rat_y = generate_safe_position(RAT_SIZE, obstacles)
     cheeses = [generate_cheese_position(obstacles) for _ in range(3)]
-    cat = Cat(random.randint(60, 300), 15, cat_x, cat_y)
-    rat = Rat(random.randint(60, 300), 5, rat_x, rat_y)
+    cat = Cat(random.randint(60, 300), CAT_SIZE, cat_x, cat_y)
+    rat = Rat(random.randint(60, 300), RAT_SIZE, rat_x, rat_y)
     pid_controller = PID(0.9, 0.1, 0.01)
     last_catch_time = 0
     start_ticks = time.time()
