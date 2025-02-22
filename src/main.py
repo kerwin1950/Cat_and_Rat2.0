@@ -21,15 +21,16 @@ BUTTON_WIDTH = 200
 BUTTON_HEIGHT = 50
 STEP_SIZE = 20
 BASE_RAT_SIZE = 10  # 设计分辨率下的基础大小
-RAT_SIZE = int(BASE_RAT_SIZE * scale_factor)
+RAT_SIZE = 10 #int(BASE_RAT_SIZE * scale_factor)
 BASE_CAT_SIZE = 30  # 设计分辨率下的基础大小
-CAT_SIZE = int(BASE_CAT_SIZE * scale_factor)
+CAT_SIZE = 30#int(BASE_CAT_SIZE * scale_factor)
 BASE_CHEESE_SIZE = 20  # 设计分辨率下的基础大小
 CHEESE_SIZE = int(BASE_CHEESE_SIZE * scale_factor)
 BASE_OBSTACLE_SIZE_LOW = 40  # 设计分辨率下的基础大小
-BASE_OBSTACLE_SIZE_HIGH = 150  # 设计分辨率下的基础大小
+BASE_OBSTACLE_SIZE_HIGH = 100  # 设计分辨率下的基础大小
 OBSTACLE_SIZE_LOW = int(BASE_OBSTACLE_SIZE_LOW * scale_factor)
 OBSTACLE_SIZE_HIGH = int(BASE_OBSTACLE_SIZE_HIGH * scale_factor)
+INVINCIBILITY_TIME = 3  # 无敌时间（秒）
 # 颜色（RGB 格式）
 WHITE       = (255, 255, 255)
 BLACK       = (0, 0, 0)
@@ -125,10 +126,16 @@ class Rat:
         self.y = y
         self.rect = Rect(x, y, r * 2, r * 2)
         self.color = (0, 255, 0)
+        self.invincible = False
+        self.invincible_start = 0
 
     def draw(self, ctx):
         ctx.beginPath()
         ctx.arc(self.x, self.y, self.r, 0, 2 * math.pi)
+        if self.invincible:
+            ctx.strokeStyle = rgb_color(YELLOW)
+            ctx.lineWidth = 10
+            ctx.stroke()
         ctx.fillStyle = rgb_color(self.color)
         ctx.fill()
 
@@ -340,6 +347,17 @@ def generate_safe_position(radius, obstacles):
         if not is_colliding(x, y, obstacles, radius):
             return x, y
 
+def regenerate_rat():
+    global rat, obstacles
+    # 利用已有的 generate_safe_position 保证新位置安全
+    new_x, new_y = generate_safe_position(RAT_SIZE, obstacles)
+    rat.x = new_x
+    rat.y = new_y
+    rat.rect.center = (new_x, new_y)
+    # 设置无敌状态，记录开始时间
+    rat.invincible = True
+    rat.invincible_start = time.time()
+
 def generate_cheese_position(obstacles):
     while True:
         x = random.randint(1, (HORIZONTAL_LENGTH - 20) // STEP_SIZE - 1) * STEP_SIZE
@@ -421,12 +439,16 @@ def show_instructions():
                            BUTTON_WIDTH, BUTTON_HEIGHT, 'Return')
     instruction_running = {"running": True}
 
-    # 使用 lambda 包装函数传递 return_button 参数
-    help_mouse_move = lambda event: handle_mouse_move(event, return_button, button_color, hover_color)
-    help_mouse_click = lambda event: handle_mouse_click(event, return_button, lambda: close_instructions(instruction_running))
+    help_handlers = []# 事件处理函数列表
+    def help_mouse_move(event):
+        handle_mouse_move(event, return_button, button_color, hover_color)
+    def help_mouse_click(event):
+        handle_mouse_click(event, return_button, lambda: close_instructions(instruction_running))
+    
+    help_handlers.extend([help_mouse_move, help_mouse_click])
     document.bind("mousemove", help_mouse_move)
     document.bind("click", help_mouse_click)
-
+    
     def render_instructions(timestamp):
         if not instruction_running["running"]:
             return
@@ -605,11 +627,15 @@ def on_game_click(event):
                 BG_MUSIC.pause()
                 main()# 重新开始游戏
 def main_loop(timestamp):
-    global rat, cat, cheeses, obstacles, pid_controller, last_catch_time, start_ticks, lives_count, scores, is_paused, game_running
+    global last_frame_time,rat, cat, cheeses, obstacles, pid_controller, last_catch_time, start_ticks, lives_count, scores, is_paused, game_running
     
     if not game_running:
         return
-
+    
+    current_time = time.time()
+    if rat and rat.invincible and (current_time - rat.invincible_start >= INVINCIBILITY_TIME):
+        rat.invincible = False
+        
     if not is_paused:
         # 检查游戏剩余时间，如果用完就显示退出界面
         if update_timer(start_ticks) <= 0:
@@ -649,6 +675,8 @@ def main_loop(timestamp):
     for cheese in cheeses:
         cheese.draw(ctx)
     for cheese in list(cheeses):
+        if cat.rect.colliderect(cheese.rect):
+            cheeses.remove(cheese)
         if rat.rect.colliderect(cheese.rect):
             scores += 1
             EAT_SOUND.volume = 0.2
@@ -658,7 +686,7 @@ def main_loop(timestamp):
                 cheeses.append(generate_cheese_position(obstacles))
             break
     current_time = time.time()  # 获取当前时间（秒）
-    if abs(cat.x - rat.x) < 10 and abs(cat.y - rat.y) < 10:
+    if not rat.invincible and abs(cat.x - rat.x) < 10 and abs(cat.y - rat.y) < 10:
         if current_time - last_catch_time >= catch_cooldown / 1000:
             last_catch_time = current_time
             HIT_SOUND.volume = 0.2
@@ -682,6 +710,9 @@ def main_loop(timestamp):
                         window.requestAnimationFrame(main_loop)
                 show_exit_screen(scores, lives_count, exit_callback)
                 return
+            else:
+                # 重新生成鼠标，并进入无敌状态
+                regenerate_rat()
     ctx.fillStyle = rgb_color(WHITE)
     ctx.font = "20px Arial"
     ctx.fillText("Time: {}".format(update_timer(start_ticks)),10, 30)
@@ -721,6 +752,7 @@ def clean_exit():
 
 def main():
     global game_running, is_paused, rat, cat, cheeses, obstacles, pid_controller, lives_count, scores, start_ticks
+    game_running = False  # 停止当前游戏循环
     # 完全重置所有游戏状态
     game_running = True
     is_paused = False
@@ -732,11 +764,7 @@ def main():
     cat = None
     cheeses = []
     obstacles = initialize_obstacles(20)
-     # 确保移除旧的事件监听
-    try:
-        document.unbind("click", on_game_click)
-    except:
-        pass
+    
     cat_x, cat_y = generate_safe_position(CAT_SIZE, obstacles)
     rat_x, rat_y = generate_safe_position(RAT_SIZE, obstacles)
     cheeses = [generate_cheese_position(obstacles) for _ in range(3)]
